@@ -1,6 +1,10 @@
 # ThreadWise TypeScript API
 
-Simple Express server written in TypeScript. Provides a starter structure for building out the ThreadWise API.
+Simple Chatbot backend written in Express and TypeScript. Chat endpoint takes user prompt and uses an LLM to either:
+- provide a direct response
+- call a pre-defined weather tool if the LLM decides the prompt contains relevant inputs (location) to call that tool.
+
+Model: OpenAI GPT 4.0-mini
 
 ## Prerequisites
 
@@ -13,6 +17,12 @@ Install dependencies:
 
 ```bash
 npm install
+```
+
+Retrieve an API key for OpenAI and store in a .env file
+
+```bash
+OPENAI_API_KEY=sk-...
 ```
 
 ### Development
@@ -47,6 +57,7 @@ The server listens on `http://localhost:3000` by default and responds with a JSO
 
 ## Environment Variables
 
+- `OPENAI_API_KEY` - Required. Necessary for the LLm-based chatbot.
 - `PORT` – Optional. Overrides the default port `3000`.
 
 ## Additional Scripts
