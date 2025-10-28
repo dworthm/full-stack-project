@@ -1,7 +1,13 @@
 import express, { Request, Response } from 'express';
+import { calculate } from './tools/calculator';
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:5173')
+  next()
+})
 
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'Hello from ThreadWise TypeScript API!' });

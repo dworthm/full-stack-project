@@ -6,19 +6,6 @@ interface Message {
   sender: 'user' | 'bot'; // Use a string literal union for sender
 }
 
-// --- Mock Function ---
-const getBotResponse = (userInput: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (userInput.trim().toLowerCase() === 'error') {
-        reject('Oops! Something went wrong. Please try again.');
-      } else {
-        resolve(`This is a simulated bot response to: "${userInput}"`);
-      }
-    }, 1500);
-  });
-};
-
 const ChatbotUI: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     { id: 1, text: 'Hello! How can I assist you today?', sender: 'bot' },
@@ -51,8 +38,9 @@ const ChatbotUI: React.FC = () => {
     setError(null);
 
     try {
-      const botText = await getBotResponse(trimmedInput);
-      const newBotMessage: Message = { id: Date.now() + 1, text: botText, sender: 'bot' };
+      const response = await fetch(`http://localhost:3000/api/v1.0/chat?prompt=${trimmedInput}`)
+      const { botResponse } = await response.json()
+      const newBotMessage: Message = { id: Date.now() + 1, text: botResponse, sender: 'bot' };
       setMessages((prev) => [...prev, newBotMessage]);
     } catch (err) {
       if (typeof err === 'string') {
