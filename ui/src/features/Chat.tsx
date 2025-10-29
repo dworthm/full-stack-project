@@ -33,7 +33,7 @@ const ChatbotUI: React.FC = () => {
     const trimmedInput = inputValue.trim();
     if (trimmedInput === '' || isLoading) return;
 
-    const lastId = messages[messages.length - 1].id
+    const lastId = messages[messages.length - 1]?.id ?? 1
 
     const newUserMessage: Message = { id: lastId + 1, content: trimmedInput, role: 'user' };
     setMessages((prev) => [...prev, newUserMessage]);
@@ -113,7 +113,7 @@ const ChatbotUI: React.FC = () => {
               message.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
-            <DeleteMessageButton onClick={() => handleMessageDelete(message.id)} />
+            {message.id !== 1 && <DeleteMessageButton onClick={() => handleMessageDelete(message.id)} />}
             <div
               className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow ${
                 message.role === 'user'
