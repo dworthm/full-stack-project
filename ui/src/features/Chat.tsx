@@ -76,16 +76,25 @@ const ChatbotUI: React.FC = () => {
   };
 
   const handleMessageDelete = async (messageid: number) => {
-    // get messageId, sessionId
-    const response = await fetch(`http://localhost:3000/api/v1.0/messages/${messageid}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json' // Set headers if required by your API
-      },
-      body: JSON.stringify({ sessionId })
-    })
-    const {messages} = await response.json()
-    setMessages(messages)
+    try {
+      const response = await fetch(`http://localhost:3000/api/v1.0/messages/${messageid}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json' // Set headers if required by your API
+        },
+        body: JSON.stringify({ sessionId })
+      })
+      const {messages} = await response.json()
+      setMessages(messages)
+    } catch (err) {
+      if (typeof err === 'string') {
+        setError(err);
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred.');
+      }
+    }
   }
 
   return (

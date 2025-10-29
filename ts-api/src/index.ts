@@ -5,6 +5,7 @@ import {
   ChatCompletionTool,
   ChatCompletionMessageParam, // We'll use this type
 } from "openai/resources/chat/completions";
+import { APIError, RateLimitError, BadRequestError } from 'openai/error';
 import { getCurrentWeather, toolSchema } from './tools/weather';
 
 dotenv.config()
@@ -36,9 +37,12 @@ app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'Hello from ThreadWise TypeScript API!' });
 });
 
+// DELETE endpoint removes a specific message for that session and returns updated chat history to user
 app.delete('/api/v1.0/messages/:messageid', (req: Request, res: Response) => {
   const { sessionId } = req.body as { sessionId: number}
   const { messageid } = req.params
+  if (!sessionId) return res.status(400).json({ error: 'Session not found.'})
+  if (!messageid) return res.status(400).json({ error: 'Please provide message id to delete.'})
   const messages = chatHistoryStore.get(sessionId.toString())
   if (!messages) {
     return res.status(400).json({ error: "Session not found." });
@@ -48,12 +52,19 @@ app.delete('/api/v1.0/messages/:messageid', (req: Request, res: Response) => {
   res.json({ messages: newMessages })
 })
 
+// Primary chat endpoint. Invokes LLM with chat history and latest prompt, possibly calls tool, then responds to user
 app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
-  let { newUserMessage, sessionId } = req.body as { newUserMessage: {id: number, role: 'user', content: string}, sessionId: number };
+  let {
+    newUserMessage,
+    sessionId
+  } = req.body as {
+      newUserMessage: {id: number, role: 'user', content: string},
+      sessionId?: number
+    };
   const { id, role, content} = newUserMessage
-  if (!newUserMessage.content) {
+  if (!content) {
       return res.status(400).json({ error: "Prompt is required" });
-    }
+  }
   // If no session yet, create one
   if (!sessionId) {
     sessionId = IdCounter;
@@ -68,50 +79,64 @@ app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
   }
   messages.push({id, role, content});
 
+  // Prompt LLM with entire chat history and let it decide if tool should be called.
   const apiMessages: ChatCompletionMessageParam[] = messages.map(
       ({ id, ...rest }) => rest
     );
-  const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: apiMessages,
-      tools: [toolSchema],
-      tool_choice: "auto",
-    });
-  const responseMessage = response.choices[0].message;
-  const toolCalls = responseMessage.tool_calls;
-  let botResponse;
-  if (toolCalls && !!toolCalls.length) {
-    console.log("Decision: Use tool");
-    const toolCall = toolCalls[0];
-    // @ts-ignore
-    const functionName = toolCall.function.name;
-    if (functionName === "get_current_weather") {
-        // @ts-ignore
-        const args = JSON.parse(toolCall.function.arguments);
-        const location = args.location;
-        const toolResult = getCurrentWeather(location);
+  try {
+    const response = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: apiMessages,
+        tools: [toolSchema],
+        tool_choice: "auto",
+      });
+    const responseMessage = response.choices[0].message;
+    const toolCalls = responseMessage.tool_calls;
+    let botResponse;
+    if (toolCalls && !!toolCalls.length) {
+      console.log("Decision: Use tool");
+      const toolCall = toolCalls[0];
+      // @ts-ignore
+      const functionName = toolCall.function.name;
+      if (functionName === "get_current_weather") {
+          // @ts-ignore
+          const args = JSON.parse(toolCall.function.arguments);
+          const location = args.location;
+          const toolResult = getCurrentWeather(location);
 
-        if (toolResult.temperature === 'unknown') {
-          botResponse = `The weather in ${toolResult.location} is unknown`
-        } else {
-          botResponse = `The weather in ${toolResult.location} is ${toolResult.temperature} and ${toolResult.condition}`
-        }
-        // res.json({ messages })
+          if (toolResult.temperature === 'unknown') {
+            botResponse = `The weather in ${toolResult.location} is unknown`
+          } else {
+            botResponse = `The weather in ${toolResult.location} is ${toolResult.temperature} and ${toolResult.condition}`
+          }
+      } else {
+          res.status(500).json({ error: "Unknown tool requested" });
+      }
     } else {
-        res.status(500).json({ error: "Unknown tool requested" });
+      botResponse = responseMessage.content
     }
-  } else {
-    botResponse = responseMessage.content
-    // res.json({ botResponse: responseMessage.content });
+    // Add LLM's response to chat history and return to user
+    const lastId = messages[messages.length - 1].id
+    messages.push({
+      id: lastId + 1,
+      role: 'assistant',
+      content: botResponse,
+    })
+    chatHistoryStore.set(sessionId.toString(), messages)
+    res.json({ messages, sessionId })
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      res.status(err.status).json({ error: `Rate limit exceeded: Status ${err.status}` })
+    } else if (err instanceof BadRequestError) {
+      res.status(err.status).json({ error: `Bad request: Status ${err.status}` })
+    } else if (err instanceof APIError) {
+      // Handle other API errors (e.g., 500, 401, 403)
+      res.status(err.status).json({ error: `An API error occurred: Status ${err.status}` })
+    } else {
+      // Handle non-API errors
+      res.status(500).json({ error: 'An unexpected error occurred:'});
+    }
   }
-  const lastId = messages[messages.length - 1].id
-  messages.push({
-    id: lastId + 1,
-    role: 'assistant',
-    content: botResponse,
-  })
-  chatHistoryStore.set(sessionId.toString(), messages)
-  res.json({ messages, sessionId })
 })
 
 app.listen(port, () => {
