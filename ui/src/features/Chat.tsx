@@ -14,7 +14,6 @@ const ChatbotUI: React.FC = () => {
   const [inputValue, setInputValue] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<number | null>(null)
 
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -48,13 +47,12 @@ const ChatbotUI: React.FC = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          newUserMessage,
-          sessionId
-        })
+          newUserMessage
+        }),
+        credentials: 'include'
       })
-      const { messages, sessionId: newSessionId } = await response.json()
+      const { messages } = await response.json()
       setMessages(messages);
-      setSessionId(newSessionId)
     } catch (err) {
       if (typeof err === 'string') {
         setError(err);
@@ -82,7 +80,7 @@ const ChatbotUI: React.FC = () => {
         headers: {
           'Content-Type': 'application/json' // Set headers if required by your API
         },
-        body: JSON.stringify({ sessionId })
+        credentials: 'include'
       })
       const {messages} = await response.json()
       setMessages(messages)

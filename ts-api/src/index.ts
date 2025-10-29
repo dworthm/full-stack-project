@@ -1,4 +1,7 @@
 import express, { Request, Response } from 'express';
+import session from 'express-session';
+import cors from 'cors';
+import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import {
@@ -11,6 +14,19 @@ import { getCurrentWeather, toolSchema } from './tools/weather';
 dotenv.config()
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.use(cors({
+  origin: 'http://localhost:5173',     // Allow requests from this origin
+  credentials: true    // Allow cookies to be sent
+}));
+app.use(session({
+  secret: process.env.SESSION_SECRET || randomUUID(),
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    secure: false
+  },
+}))
 
 let IdCounter = 1;
 
@@ -34,48 +50,49 @@ const client = new OpenAI({
 const chatHistoryStore = new Map<string, StoredMessage[]>();
 
 app.get('/', (req: Request, res: Response) => {
+  console.log(req.sessionID)
   res.json({ message: 'Hello from ThreadWise TypeScript API!' });
 });
 
 // DELETE endpoint removes a specific message for that session and returns updated chat history to user
 app.delete('/api/v1.0/messages/:messageid', (req: Request, res: Response) => {
-  const { sessionId } = req.body as { sessionId: number}
+  const sessionId  = req.sessionID
   const { messageid } = req.params
   if (!sessionId) return res.status(400).json({ error: 'Session not found.'})
   if (!messageid) return res.status(400).json({ error: 'Please provide message id to delete.'})
-  const messages = chatHistoryStore.get(sessionId.toString())
+  const messages = chatHistoryStore.get(sessionId)
   if (!messages) {
     return res.status(400).json({ error: "Session not found." });
   }
   const newMessages = messages.filter((message) => message.id !== Number(messageid))
-  chatHistoryStore.set(sessionId.toString(), newMessages)
+  chatHistoryStore.set(sessionId, newMessages)
   res.json({ messages: newMessages })
 })
 
 // Primary chat endpoint. Invokes LLM with chat history and latest prompt, possibly calls tool, then responds to user
 app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
   let {
-    newUserMessage,
-    sessionId
+    newUserMessage
   } = req.body as {
-      newUserMessage: {id: number, role: 'user', content: string},
-      sessionId?: number
+      newUserMessage: {id: number, role: 'user', content: string}
     };
   const { id, role, content} = newUserMessage
   if (!content) {
       return res.status(400).json({ error: "Prompt is required" });
   }
   // If no session yet, create one
-  if (!sessionId) {
-    sessionId = IdCounter;
-    chatHistoryStore.set(sessionId.toString(), []);
-    IdCounter++;
-  }
+  // if (!sessionId) {
+  //   sessionId = IdCounter;
+  //   chatHistoryStore.set(sessionId.toString(), []);
+  //   IdCounter++;
+  // }
 
   // Retrieve existing messages and add latest user prompt
-  const messages = chatHistoryStore.get(sessionId.toString());
+  const sessionId = req.sessionID;
+  console.log(`Session ID: ${sessionId}`)
+  let messages = chatHistoryStore.get(sessionId);
   if (messages === undefined) {
-      return res.status(404).json({ error: "Session not found. Please start a new session." });
+      messages = [];
   }
   messages.push({id, role, content});
 
@@ -122,8 +139,8 @@ app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
       role: 'assistant',
       content: botResponse,
     })
-    chatHistoryStore.set(sessionId.toString(), messages)
-    res.json({ messages, sessionId })
+    chatHistoryStore.set(sessionId, messages)
+    res.json({ messages })
   } catch (err) {
     if (err instanceof RateLimitError) {
       res.status(err.status).json({ error: `Rate limit exceeded: Status ${err.status}` })
