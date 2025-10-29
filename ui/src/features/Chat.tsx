@@ -2,19 +2,20 @@ import React, { useState, useRef, useEffect } from 'react';
 
 interface Message {
   id: number;
-  text: string;
-  sender: 'user' | 'bot'; // Use a string literal union for sender
+  content: string;
+  role: 'user' | 'assistant';
 }
 
 const ChatbotUI: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, text: 'Hello! How can I assist you today?', sender: 'bot' },
+    { id: 1, content: 'Hello! How can I assist you today?', role: 'assistant' },
   ]);
   const [inputValue, setInputValue] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null); // Can be string or null
+  const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<number | null>(null)
 
-  // The ref will point to an HTMLDivElement or be null
+
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const scrollToBottom = () => {
@@ -31,17 +32,28 @@ const ChatbotUI: React.FC = () => {
     const trimmedInput = inputValue.trim();
     if (trimmedInput === '' || isLoading) return;
 
-    const newUserMessage: Message = { id: Date.now(), text: trimmedInput, sender: 'user' };
+    const lastId = messages[messages.length - 1].id
+
+    const newUserMessage: Message = { id: lastId + 1, content: trimmedInput, role: 'user' };
     setMessages((prev) => [...prev, newUserMessage]);
     setInputValue('');
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`http://localhost:3000/api/v1.0/chat?prompt=${trimmedInput}`)
-      const { botResponse } = await response.json()
-      const newBotMessage: Message = { id: Date.now() + 1, text: botResponse, sender: 'bot' };
-      setMessages((prev) => [...prev, newBotMessage]);
+      const response = await fetch('http://localhost:3000/api/v1.0/chat/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          newUserMessage,
+          sessionId
+        })
+      })
+      const { messages, sessionId: newSessionId } = await response.json()
+      setMessages(messages);
+      setSessionId(newSessionId)
     } catch (err) {
       if (typeof err === 'string') {
         setError(err);
@@ -75,17 +87,17 @@ const ChatbotUI: React.FC = () => {
           <div
             key={message.id}
             className={`flex ${
-              message.sender === 'user' ? 'justify-end' : 'justify-start'
+              message.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
             <div
               className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow ${
-                message.sender === 'user'
+                message.role === 'user'
                   ? 'bg-blue-500 text-white rounded-br-none'
                   : 'bg-white text-gray-800 rounded-bl-none'
               }`}
             >
-              {message.text}
+              {message.content}
             </div>
           </div>
         ))}
