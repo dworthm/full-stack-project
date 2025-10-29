@@ -1,6 +1,6 @@
 # ThreadWise TypeScript API
 
-Simple Chatbot backend written in Express and TypeScript. Chat endpoint takes user prompt and uses an LLM to either:
+Simple Chatbot backend (Express, TypeScript, MongoDB). Chat endpoint takes user prompt and uses an LLM to either:
 - provide a direct response
 - call a pre-defined weather tool if the LLM decides the prompt contains relevant inputs (location) to call that tool.
 
@@ -15,6 +15,7 @@ Model: OpenAI GPT 4.0-mini
 
 - Node.js 18+
 - npm 9+
+- Docker (and docker-compose)
 
 ## Getting Started
 
@@ -31,6 +32,14 @@ OPENAI_API_KEY=sk-...
 ```
 
 ### Development
+
+First, spin up the MongoDB:
+
+(navigate to ../db)
+
+```bash
+docker-compose up -d
+```
 
 Launch the app with hot reloading:
 
@@ -64,6 +73,8 @@ The server listens on `http://localhost:3000` by default and responds with a JSO
 ## Environment Variables
 
 - `OPENAI_API_KEY` - Required. Necessary for the LLM-based chatbot.
+- `SESSION_SECRET` - Required. Necessary for server to maintain session ID for length of chat. Can be any secure, long string.
+- `MONGO_URI` - Required. URI for local MongoDB running in Docker container.
 - `PORT` – Optional. Overrides the default port `3000`.
 
 ## Additional Scripts

@@ -5,13 +5,29 @@ import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import {
-  ChatCompletionTool,
-  ChatCompletionMessageParam, // We'll use this type
+  ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { APIError, RateLimitError, BadRequestError } from 'openai/error';
+import { MongoClient, Collection } from 'mongodb';
 import { getCurrentWeather, toolSchema } from './tools/weather';
 
 dotenv.config()
+
+// MongoDB setup
+const mongoUri = process.env.MONGO_URI;
+if (!mongoUri) {
+  console.error('MONGO_URI environment variable is not set.');
+  process.exit(1);
+}
+const mongoClient = new MongoClient(mongoUri);
+let chatCollection: Collection<ChatDocument>;
+
+interface ChatDocument {
+  sessionId: string;
+  messages: StoredMessage[];
+}
+
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -47,26 +63,35 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const chatHistoryStore = new Map<string, StoredMessage[]>();
-
 app.get('/', (req: Request, res: Response) => {
   console.log(req.sessionID)
   res.json({ message: 'Hello from ThreadWise TypeScript API!' });
 });
 
 // DELETE endpoint removes a specific message for that session and returns updated chat history to user
-app.delete('/api/v1.0/messages/:messageid', (req: Request, res: Response) => {
+app.delete('/api/v1.0/messages/:messageid', async (req: Request, res: Response) => {
   const sessionId  = req.sessionID
   const { messageid } = req.params
   if (!sessionId) return res.status(400).json({ error: 'Session not found.'})
   if (!messageid) return res.status(400).json({ error: 'Please provide message id to delete.'})
-  const messages = chatHistoryStore.get(sessionId)
-  if (!messages) {
-    return res.status(400).json({ error: "Session not found." });
+
+  try {
+    const chatDocument = await chatCollection.findOne({ sessionId });
+    if (!chatDocument) {
+      return res.status(404).json({ error: "Session not found." });
+    }
+    const newMessages = chatDocument.messages.filter((message) => message.id !== Number(messageid))
+
+    await chatCollection.updateOne(
+      { sessionId },
+      { $set: { messages: newMessages } }
+    );
+
+    res.json({ messages: newMessages })
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).json({ error: 'Failed to delete message.' });
   }
-  const newMessages = messages.filter((message) => message.id !== Number(messageid))
-  chatHistoryStore.set(sessionId, newMessages)
-  res.json({ messages: newMessages })
 })
 
 // Primary chat endpoint. Invokes LLM with chat history and latest prompt, possibly calls tool, then responds to user
@@ -80,28 +105,24 @@ app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
   if (!content) {
       return res.status(400).json({ error: "Prompt is required" });
   }
-  // If no session yet, create one
-  // if (!sessionId) {
-  //   sessionId = IdCounter;
-  //   chatHistoryStore.set(sessionId.toString(), []);
-  //   IdCounter++;
-  // }
 
-  // Retrieve existing messages and add latest user prompt
-  const sessionId = req.sessionID;
-  console.log(`Session ID: ${sessionId}`)
-  let messages = chatHistoryStore.get(sessionId);
-  if (messages === undefined) {
-      messages = [];
-  }
-  messages.push({id, role, content});
+  try {
+    const sessionId = req.sessionID;
+    console.log(`Session ID: ${sessionId}`)
+
+    // Retrieve existing messages and add latest user prompt
+    const chatDocument = await chatCollection.findOne({ sessionId });
+    const messages = chatDocument ? chatDocument.messages : [];
+    messages.push({id, role, content});
+
+
 
   // Prompt LLM with entire chat history and let it decide if tool should be called.
   const apiMessages: ChatCompletionMessageParam[] = messages.map(
       ({ id, ...rest }) => rest
     );
   try {
-    const response = await client.chat.completions.create({
+      const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: apiMessages,
         tools: [toolSchema],
@@ -139,7 +160,12 @@ app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
       role: 'assistant',
       content: botResponse,
     })
-    chatHistoryStore.set(sessionId, messages)
+
+    await chatCollection.updateOne(
+      { sessionId },
+      { $set: { messages } },
+      { upsert: true }
+    );
     res.json({ messages })
   } catch (err) {
     if (err instanceof RateLimitError) {
@@ -154,8 +180,26 @@ app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
       res.status(500).json({ error: 'An unexpected error occurred:'});
     }
   }
+  } catch (dbError) {
+    console.error('Database operation failed:', dbError);
+    res.status(500).json({ error: 'An internal error occurred with the database.' });
+  }
 })
 
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-});
+async function startServer() {
+  try {
+    await mongoClient.connect();
+    console.log('Connected successfully to MongoDB');
+    const db = mongoClient.db('chatbot'); // You can make the DB name an env var
+    chatCollection = db.collection<ChatDocument>('chats');
+
+    app.listen(port, () => {
+      console.log(`Server listening on port ${port}`);
+    });
+  } catch (error) {
+    console.error('Failed to connect to MongoDB', error);
+    process.exit(1);
+  }
+}
+
+startServer();
