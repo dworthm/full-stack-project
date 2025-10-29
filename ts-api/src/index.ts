@@ -20,7 +20,7 @@ type StoredMessage = ChatCompletionMessageParam & {
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', 'http://localhost:5173')
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-  res.header('Access-Control-Allow-Methods', 'GET, POST')
+  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE')
   next()
 })
 app.use(express.json());
@@ -35,6 +35,18 @@ const chatHistoryStore = new Map<string, StoredMessage[]>();
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'Hello from ThreadWise TypeScript API!' });
 });
+
+app.delete('/api/v1.0/messages/:messageid', (req: Request, res: Response) => {
+  const { sessionId } = req.body as { sessionId: number}
+  const { messageid } = req.params
+  const messages = chatHistoryStore.get(sessionId.toString())
+  if (!messages) {
+    return res.status(400).json({ error: "Session not found." });
+  }
+  const newMessages = messages.filter((message) => message.id !== Number(messageid))
+  chatHistoryStore.set(sessionId.toString(), newMessages)
+  res.json({ messages: newMessages })
+})
 
 app.post('/api/v1.0/chat', async (req: Request, res: Response) => {
   let { newUserMessage, sessionId } = req.body as { newUserMessage: {id: number, role: 'user', content: string}, sessionId: number };

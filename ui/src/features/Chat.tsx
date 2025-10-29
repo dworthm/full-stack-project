@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import DeleteMessageButton from '../components/DeleteButton';
 
 interface Message {
   id: number;
@@ -74,6 +75,19 @@ const ChatbotUI: React.FC = () => {
     }
   };
 
+  const handleMessageDelete = async (messageid: number) => {
+    // get messageId, sessionId
+    const response = await fetch(`http://localhost:3000/api/v1.0/messages/${messageid}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json' // Set headers if required by your API
+      },
+      body: JSON.stringify({ sessionId })
+    })
+    const {messages} = await response.json()
+    setMessages(messages)
+  }
+
   return (
     <div className="flex flex-col flex-1 bg-gray-100">
       {/* Header */}
@@ -90,6 +104,7 @@ const ChatbotUI: React.FC = () => {
               message.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
+            <DeleteMessageButton onClick={() => handleMessageDelete(message.id)} />
             <div
               className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow ${
                 message.role === 'user'
